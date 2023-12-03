@@ -13,6 +13,23 @@ import torch
 import h5py
 import os
 
+
+train_transform_aug = transforms.Compose([
+    transforms.Resize((32, 32)),
+    transforms.RandomHorizontalFlip(),
+    transforms.RandomRotation(10),  # 10도 범위로 무작위 회전
+    transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),  # 색상 조정
+    transforms.RandomAffine(degrees=0, translate=(0.1, 0.1), scale=(0.9, 1.1), shear=10),  # 무작위 변형
+    transforms.RandomVerticalFlip(),  # 무작위 수직 뒤집기
+    transforms.ToTensor(),
+])
+
+valid_transform = transforms.Compose([
+    transforms.Resize((32, 32)),
+    transforms.ToTensor(),
+])
+
+
 class CustomDataset(Dataset):
     def __init__(self, images, labels, transform=None):
         self.images = images
@@ -23,17 +40,13 @@ class CustomDataset(Dataset):
         return len(self.images)
 
     def __getitem__(self, idx):
-        image_path = self.images[idx]
+        image = self.images[idx]
         label = self.labels[idx]
-
-        image = Image.open(image_path)
 
         if self.transform:
             image = self.transform(image)
 
-        sample = {'image': image, 'label': label}
-
-        return sample
+        return {'image': image, 'label': label}
     
 
 class SVHDDataset(Dataset):
