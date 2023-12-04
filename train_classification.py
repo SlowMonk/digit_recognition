@@ -7,7 +7,7 @@ import random
 from torch.utils.data import Dataset, random_split
 from torchvision import transforms
 
-from model import VGG16, VGG
+from model import VGG16, VGG, BasicCNN
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
@@ -19,7 +19,7 @@ def parse_args():
     parser.add_argument('--test_path', type=str, default='/data/omscs_datasets/train/', help='Path to the test dataset')
     parser.add_argument('--extra_path', type=str, default='/data/omscs_datasets/extra/', help='Path to the extra dataset')
     parser.add_argument('--device', type=str, default='cuda:0', help='Path to the device')
-    parser.add_argument('--epoch', type=str, default=200, help='Path to the device')
+    parser.add_argument('--epoch', type=int, default=50, help='Path to the device')
 
     return parser.parse_args()
 
@@ -35,10 +35,10 @@ def load_images(train_mat_file_path, extra_mat_file_path, train_path, extra_path
             train_images.append(tt['image'])
             train_labels.append(tt['label'])
 
-    for t in tqdm(extra_dataset):
-        for tt in t:
-            train_images.append(tt['image'])
-            train_labels.append(tt['label'])
+    # for t in tqdm(extra_dataset):
+    #     for tt in t:
+    #         train_images.append(tt['image'])
+    #         train_labels.append(tt['label'])
 
     return train_images, train_labels
 
@@ -173,12 +173,13 @@ def train(model, train_loader, test_loader, criterion, optimizer, scheduler, dev
         
         if epoch_test_accuracy > best_accuracy:
             best_accuracy = epoch_test_accuracy
-            torch.save(model.state_dict(), 'weights/class_best_model_classification.pth')
+            torch.save(model.state_dict(), 'weights/class_best_model_classification_CNN.pth')
             print(f"New best model saved with accuracy: {epoch_test_accuracy}%")
         
     plt.figure(figsize=(12, 6))
     plt.subplot(1, 2, 1)
     plt.plot(range(1, num_epochs + 1), train_losses, label='Train Loss')
+
     plt.xlabel('Epochs')
     plt.ylabel('Loss')
     plt.title('Training Loss Over Time')
@@ -193,7 +194,7 @@ def train(model, train_loader, test_loader, criterion, optimizer, scheduler, dev
     plt.legend()
 
     # 그래프 파일로 저장
-    plt.savefig('training_classification_progress.png')
+    plt.savefig('training_classification_progress_CNN.png')
     plt.show()
 
 
@@ -217,14 +218,15 @@ if __name__ == "__main__":
 
     #model = VGG(num_classes=11).to(device)
     model =  VGG16(num_classes=11).to(device)
+    #model = BasicCNN(num_classes=11).to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
     model.to(device)
 
     # Step 4: Create a DataLoader for your dataset
-    train_loader = DataLoader(train_dataset, batch_size=512, shuffle=True)
-    test_loader = DataLoader(valid_dataset, batch_size=512, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=1024, shuffle=True)
+    test_loader = DataLoader(valid_dataset, batch_size=1024, shuffle=False)
     print(len(train_loader), len(test_loader))
 
     train(model, train_loader, test_loader, criterion, optimizer, scheduler, device, args.epoch)
