@@ -166,7 +166,8 @@ def merge_overlapping_boxes(boxes):
 def detect_digit_from_image_reconstruct(img_path, vae_model, vgg16_model, output_image_path, device, num):
     vae_model.eval()
     vgg16_model.eval()
-    
+    font = cv2.FONT_HERSHEY_SIMPLEX
+
     # 이미지 로드 및 확인
     original_image = cv2.imread(img_path)
     if original_image.shape[2] == 4:  # RGBA 이미지인 경우 RGB로 변환
@@ -202,50 +203,10 @@ def detect_digit_from_image_reconstruct(img_path, vae_model, vgg16_model, output
                         scale_factor = original_image.shape[1] / resized.shape[1]
                         x_scaled, y_scaled, w_scaled, h_scaled = int(x * scale_factor), int(y * scale_factor), int(w * scale_factor), int(h * scale_factor)
                         cv2.rectangle(original_image, (x_scaled, y_scaled), (x_scaled + w_scaled, y_scaled + h_scaled), (0, 255, 0), 2)
+                        cv2.putText(original_image, str(predicted_class.item()), (x, y + 9), font, 0.5, (255, 0, 0), 2)
                         window_vec.append([x_scaled, y_scaled, w_scaled, h_scaled])
     
     cv2.imwrite(output_image_path, original_image)
-
-
-def detect_digit_from_image_reconstruct2(img_path, vae_model, vgg16_model, output_image_path, device, num):
-    vae_model.eval()
-    vgg16_model.eval()
-    binary_image = cv2.imread(img_path)
-    
-    cv2.imwrite('window_images/preprocessed_image.png', binary_image)
-    
-    height, width, channel = binary_image.shape
-    window_height = height // 2
-    window_width = width // 6
-    stride_height = window_height // 2  # 보다 세밀한 스트라이드
-    stride_width = window_width // 2
-    reconstructed_loss = []
-    window_vec = []
-
-    for y in range(0, height - window_height + 1, stride_height):
-        for x in range(0, width - window_width + 1, stride_width):
-            window = binary_image[y:y + window_height, x:x + window_width, :]
-            processed_window = cv2.resize(window, (32, 32))
-            processed_window = transforms.ToTensor()(processed_window).unsqueeze(0).to(device)
-
-            with torch.no_grad():
-                _, predicted = torch.max(vgg16_model(processed_window), 1)
-                probabilities = F.softmax(vgg16_model(processed_window), dim=1)
-                predicted_prob, predicted_class = torch.max(probabilities, 1)
-
-                x_reconstructed, mu, log_var  = vae_model(processed_window)
-                loss = vae_loss(x_reconstructed, processed_window, mu, log_var)
-                reconstructed_loss.append(loss)
-                #window_vec.append([x,y,window_width,window_height])
-                cv2.imwrite(f'window_images/{num}_{predicted_class}_{predicted_prob[0]}_{loss}.png', window)
-                if predicted_prob[0] > 0.95:
-                   window_vec.append([x,y,window_width,window_height])
-                   cv2.rectangle(binary_image, (x, y), (x + window_width, y + window_height), (0, 255, 0), 2)
-                   font = cv2.FONT_HERSHEY_SIMPLEX
-                   cv2.putText(binary_image, str(predicted_class.item()), (x, y + 9), font, 0.5, (255, 0, 0), 2)
-                   #cv2.imwrite(f'window_images/{num}_{predicted_class}_{predicted_prob[0]}_{loss}.png', window)
-    
-    cv2.imwrite(output_image_path, binary_image)
 
 if __name__ == "__main__":
     os.system('rm -rf output_images/*')
