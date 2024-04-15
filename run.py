@@ -34,6 +34,18 @@ import argparse
 from glob import glob
 from utils import vae_loss
 import torch.nn.functional as F
+import cv2
+import numpy as np
+from skimage.measure import label, regionprops
+from skimage.morphology import convex_hull_image
+
+import cv2
+import numpy as np
+import torch
+from torchvision import transforms
+import torch.nn.functional as F
+import os
+from skimage.transform import pyramid_gaussian
 
 os.environ['TORCH_NNPACK'] = '0'
 
@@ -44,8 +56,8 @@ def parse_args():
     parser.add_argument('--extra_path', type=str, default='/data/omscs_datasets/extra/', help='Path to the extra dataset')
     parser.add_argument('--device', type=str, default='cuda:0', help='Path to the device')
     parser.add_argument('--epoch', type=int, default=50, help='Path to the device')
-    parser.add_argument('--vgg_path', type=str, default='weights/class_best_model_classification.pth', help='Path to the vgg16 weights')
-    parser.add_argument('--vae_path', type=str, default='weights/vae_train_outlier_box_weight.pth', help='Path to the  VAE weights')
+    parser.add_argument('--vgg_path', type=str, default='weights/vgg_final_pretrained.pth', help='Path to the vgg16 weights')
+    parser.add_argument('--vae_path', type=str, default='weights/vae_final.pth', help='Path to the  VAE weights')
     return parser.parse_args()
 
 def calculate_anchor_sizes(image, num_sizes=3, size_ratios=[1, 0.75, 0.5]):
@@ -103,82 +115,141 @@ def nms(boxes, scores, threshold):
 
     return keep
 
+def create_image_pyramid(image, scale=1.5, min_size=(30, 30)):
+    pyramid = []
+    while True:
+        pyramid.append(image)
+        new_height = int(image.shape[0] / scale)
+        new_width = int(image.shape[1] / scale)
+        if new_height < min_size[0] or new_width < min_size[1]:
+            break
+        image = cv2.resize(image, (new_width, new_height))
+    return pyramid
 
-def detect_digit_from_image_reconstruct(img_path, model,vgg16, output_image_path, device, num):
-
-    model.eval()
-    # Load the image (now in color)
-    image = cv2.imread(img_path)
-
-    win_i = 10
-    step_size = 10
-    bbox_coords = []
-    final_bbox_coords = []
-    losses_array = []
-    predicted_arr = []
-    red_arr = []
-
-    print(image.shape)
-    h_range = (int(image.shape[0]//4), int(image.shape[0]//2))
-    w_range = (int(image.shape[1]//4), int(image.shape[1]//2))
+def merge_overlapping_boxes(boxes):
+    # 좌표를 (x1, y1, x2, y2) 형식으로 변환
+    boxes = [(x, y, x + w, y + h) for (x, y, w, h) in boxes]
     
-    h_start, h_end = int(image.shape[0]//4), int(image.shape[0]//2)
-    w_start, w_end = int(image.shape[1]//4), int(image.shape[1]//2)
-    arr_range = [h_start, h_end, w_start, w_end]
-    print(f'h_start:{h_start}, h_end:{h_end}, w_start:{w_start}, w_end:{w_end}')
-    #for h1 in tqdm(range(10,30,10)):
-    #    for w1 in range(10,30,10):
-    #window_size = (w1, h1)
-    window_size = (20, 20)
-    for y in range(0, image.shape[0] - window_size[1], step_size):
-            for x in range(0, image.shape[1] - window_size[0], step_size):
-                # Extract and preprocess the window
-                window = image[y:y + window_size[1], x:x + window_size[0]]
-                processed_window = cv2.resize(window, (32, 32))
-                #processed_window = cv2.GaussianBlur(processed_window, (5, 5), 0)
-                processed_window_gray = cv2.cvtColor(processed_window, cv2.COLOR_BGR2GRAY)
-                processed_window = transforms.ToTensor()(processed_window)
-                processed_window_gray = transforms.ToTensor()(processed_window_gray)
+    # numpy 배열로 변환
+    boxes = np.array(boxes)
+    
+    # OpenCV를 사용하여 겹치는 상자 합치기
+    merged_boxes = []
+    while len(boxes):
+        # 첫 번째 상자를 기준으로 시작
+        initial = boxes[0]
+        
+        # 첫 번째 상자와 겹치는 상자들 찾기
+        if len(boxes) == 1:
+            merged_boxes.append(initial)
+            break
+        
+        # 겹치는 상자들을 찾아 합치기
+        overlap = [(initial[0] <= box[2]) and (initial[2] >= box[0]) and
+                   (initial[1] <= box[3]) and (initial[3] >= box[1]) for box in boxes]
+        
+        # 겹치는 상자들의 좌표를 합쳐서 새로운 상자 생성
+        filtered_boxes = boxes[overlap]
+        min_x = min(filtered_boxes[:, 0])
+        min_y = min(filtered_boxes[:, 1])
+        max_x = max(filtered_boxes[:, 2])
+        max_y = max(filtered_boxes[:, 3])
+        
+        # 합쳐진 상자 저장
+        merged_boxes.append((min_x, min_y, max_x - min_x, max_y - min_y))
+        
+        # 처리된 상자들 제거
+        boxes = boxes[~np.array(overlap)]
+    
+    return merged_boxes
 
-                #processed_window = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])(processed_window)
-                processed_window = processed_window.unsqueeze(0).to(torch.float32).to(device)
-                processed_window_gray = processed_window_gray.unsqueeze(0).to(torch.float32).to(device)
+def detect_digit_from_image_reconstruct(img_path, vae_model, vgg16_model, output_image_path, device, num):
+    vae_model.eval()
+    vgg16_model.eval()
+    
+    # 이미지 로드 및 확인
+    original_image = cv2.imread(img_path)
+    if original_image.shape[2] == 4:  # RGBA 이미지인 경우 RGB로 변환
+        original_image = cv2.cvtColor(original_image, cv2.COLOR_BGRA2BGR)
 
-                # Classify the window
+    # 이미지 피라미드 생성
+    pyramid = tuple(pyramid_gaussian(original_image, downscale=2, max_layer=3))
+
+    window_vec = []
+    for scale, resized in enumerate(pyramid):
+        resized = (resized * 255).astype(np.uint8)
+        if resized.ndim == 3 and resized.shape[2] == 3:
+            gray_image = cv2.cvtColor(resized, cv2.COLOR_RGB2GRAY)
+        elif resized.ndim == 2:  # 이미 그레이스케일이면 변환하지 않음
+            gray_image = resized
+        else:
+            continue  # 예상치 못한 채널 수는 무시
+
+        # MSER 영역 감지기 생성
+        mser = cv2.MSER_create()
+        regions, _ = mser.detectRegions(gray_image)
+
+        for region in regions:
+            x, y, w, h = cv2.boundingRect(region.reshape(-1, 1, 2))
+            if w > 10 and h > 10:
+                window = cv2.resize(gray_image[y:y+h, x:x+w], (32, 32))
+                window_tensor = transforms.ToTensor()(window).unsqueeze(0).to(device)
                 with torch.no_grad():
-                    x_reconstructed, mu, log_var  = model(processed_window)
-                    loss = vae_loss(x_reconstructed, processed_window, mu, log_var)
-                    losses_array.append(loss.item())
-                    bbox_coords.append((x, y, x + window_size[0], y + window_size[1], loss.item()))
+                    _, predicted = torch.max(vgg16_model(window_tensor), 1)
+                    probabilities = torch.nn.functional.softmax(vgg16_model(window_tensor), dim=1)
+                    predicted_prob, predicted_class = torch.max(probabilities, 1)
+                    if predicted_prob[0] > 0.90:
+                        scale_factor = original_image.shape[1] / resized.shape[1]
+                        x_scaled, y_scaled, w_scaled, h_scaled = int(x * scale_factor), int(y * scale_factor), int(w * scale_factor), int(h * scale_factor)
+                        cv2.rectangle(original_image, (x_scaled, y_scaled), (x_scaled + w_scaled, y_scaled + h_scaled), (0, 255, 0), 2)
+                        window_vec.append([x_scaled, y_scaled, w_scaled, h_scaled])
+    
+    cv2.imwrite(output_image_path, original_image)
 
-                    with torch.no_grad():
-                        outputs = vgg16(processed_window)
-                        _, predicted = torch.max(outputs, 1)
-                        predicted_arr.append(predicted.item())
-                            
 
-    sorted_lst_asc = sorted(losses_array)[::-1]
-    limit_loss = sorted_lst_asc[num]
-    for bbox, lss, pred in zip(bbox_coords, losses_array, predicted_arr):
-        if lss > limit_loss:
-            final_bbox_coords.append(bbox)
-            red_arr.append(pred)
+def detect_digit_from_image_reconstruct2(img_path, vae_model, vgg16_model, output_image_path, device, num):
+    vae_model.eval()
+    vgg16_model.eval()
+    binary_image = cv2.imread(img_path)
+    
+    cv2.imwrite('window_images/preprocessed_image.png', binary_image)
+    
+    height, width, channel = binary_image.shape
+    window_height = height // 2
+    window_width = width // 6
+    stride_height = window_height // 2  # 보다 세밀한 스트라이드
+    stride_width = window_width // 2
+    reconstructed_loss = []
+    window_vec = []
 
-    # Draw bounding boxes and text on the original image
-    color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
-    idx = 0
-    for (x1, y1, x2, y2, prediction), pred_digit, rec_loss in zip(final_bbox_coords, red_arr, sorted_lst_asc[:num]):
-        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 1)
-        if idx ==0: cv2.putText(image, str(int(pred_digit)), (x1, y1+10), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (255,255,255) , 1)
-        elif idx==1:cv2.putText(image, str(int(pred_digit)), (x1, y1+10), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (0,255,255) , 1)
-        else:cv2.putText(image, str(int(pred_digit)), (x1, y1+10), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (0,0,255) , 1)
-        idx +=1
+    for y in range(0, height - window_height + 1, stride_height):
+        for x in range(0, width - window_width + 1, stride_width):
+            window = binary_image[y:y + window_height, x:x + window_width, :]
+            processed_window = cv2.resize(window, (32, 32))
+            processed_window = transforms.ToTensor()(processed_window).unsqueeze(0).to(device)
 
-    # Save the final image with bounding boxes and text
-    cv2.imwrite(output_image_path, image)
+            with torch.no_grad():
+                _, predicted = torch.max(vgg16_model(processed_window), 1)
+                probabilities = F.softmax(vgg16_model(processed_window), dim=1)
+                predicted_prob, predicted_class = torch.max(probabilities, 1)
+
+                x_reconstructed, mu, log_var  = vae_model(processed_window)
+                loss = vae_loss(x_reconstructed, processed_window, mu, log_var)
+                reconstructed_loss.append(loss)
+                #window_vec.append([x,y,window_width,window_height])
+                cv2.imwrite(f'window_images/{num}_{predicted_class}_{predicted_prob[0]}_{loss}.png', window)
+                if predicted_prob[0] > 0.95:
+                   window_vec.append([x,y,window_width,window_height])
+                   cv2.rectangle(binary_image, (x, y), (x + window_width, y + window_height), (0, 255, 0), 2)
+                   font = cv2.FONT_HERSHEY_SIMPLEX
+                   cv2.putText(binary_image, str(predicted_class.item()), (x, y + 9), font, 0.5, (255, 0, 0), 2)
+                   #cv2.imwrite(f'window_images/{num}_{predicted_class}_{predicted_prob[0]}_{loss}.png', window)
+    
+    cv2.imwrite(output_image_path, binary_image)
 
 if __name__ == "__main__":
-
+    os.system('rm -rf output_images/*')
+    os.system('rm -rf window_images/*')
     args = parse_args()
 
     # Hyperparameters
@@ -192,10 +263,16 @@ if __name__ == "__main__":
     vae.load_state_dict(torch.load(args.vae_path))
 
     vgg16 =  VGG16(num_classes=11).to(args.device)
+    #vgg16 = torch.hub.load('pytorch/vision:v0.10.0', 'vgg16', pretrained=True).cuda()
     vgg16.load_state_dict(torch.load(args.vgg_path))
 
-    images = glob("./*.png")
+    images = glob("./test_images/*.png")
+    print('images:', images)
     for img_path in images:
-        print(img_path)
-        img_name = img_path.split('/')[-1].split('.')[-2]
-        detect_digit_from_image_reconstruct(img_path, vae, vgg16, f'output_{img_name}.png', args.device, num=3)
+       print(img_path)
+       img_name = img_path.split('/')[-1].split('.')[-2]
+       detect_digit_from_image_reconstruct(img_path, vae, vgg16, f'output_images/output_{img_name}.png', args.device, num=3)
+
+    # img_path = "test_images/test4.png"
+    # img_name = img_path.split('/')[-1].split('.')[-2]
+    # detect_digit_from_image_reconstruct(img_path, vae, vgg16, f'output_images/output_{img_name}.png', args.device, num=3)

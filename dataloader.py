@@ -16,27 +16,29 @@ import random
 
 train_transform_aug = transforms.Compose([
     transforms.Resize((32, 32)),
-    transforms.RandomHorizontalFlip(),
-    transforms.RandomRotation(10),  # 10도 범위로 무작위 회전
+    #transforms.RandomHorizontalFlip(),
+    #transforms.RandomRotation(10),  # 10도 범위로 무작위 회전
     transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),  # 색상 조정
     transforms.RandomAffine(degrees=0, translate=(0.1, 0.1), scale=(0.9, 1.1), shear=10),  # 무작위 변형
-    transforms.RandomVerticalFlip(),  # 무작위 수직 뒤집기
+    #transforms.RandomVerticalFlip(),  # 무작위 수직 뒤집기
+    transforms.Grayscale(num_output_channels=1),
     transforms.ToTensor(),
 ])
 
 train_transform_gray_aug = transforms.Compose([
     transforms.Resize((32, 32)),
-    transforms.RandomHorizontalFlip(),
-    transforms.RandomRotation(10),  # 10도 범위로 무작위 회전
+    #transforms.RandomHorizontalFlip(),
+    #transforms.RandomRotation(10),  # 10도 범위로 무작위 회전
     transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),  # 색상 조정
     transforms.RandomAffine(degrees=0, translate=(0.1, 0.1), scale=(0.9, 1.1), shear=10),  # 무작위 변형
-    transforms.RandomVerticalFlip(),  # 무작위 수직 뒤집기
+    #transforms.RandomVerticalFlip(),  # 무작위 수직 뒤집기
     transforms.Grayscale(num_output_channels=1),  # 그레이스케일로 변환
     transforms.ToTensor(),
 ])
 
 valid_transform = transforms.Compose([
     transforms.Resize((32, 32)),
+    transforms.Grayscale(num_output_channels=1),
     transforms.ToTensor(),
 ])
 

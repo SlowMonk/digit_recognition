@@ -135,6 +135,8 @@ def train(model, train_loader, test_loader, criterion, optimizer, scheduler, dev
     best_accuracy = 0
     train_losses, train_accuracies, test_accuracies = [], [], []
     
+    plt.figure(figsize=(12, 6))
+    
     for epoch in range(num_epochs):
         model.train()
         running_loss = 0.0
@@ -173,29 +175,99 @@ def train(model, train_loader, test_loader, criterion, optimizer, scheduler, dev
         
         if epoch_test_accuracy > best_accuracy:
             best_accuracy = epoch_test_accuracy
-            torch.save(model.state_dict(), 'weights/class_best_model_classification_CNN.pth')
+            torch.save(model.state_dict(), 'weights/vgg_final_pretrained.pth')
             print(f"New best model saved with accuracy: {epoch_test_accuracy}%")
         
-    plt.figure(figsize=(12, 6))
-    plt.subplot(1, 2, 1)
-    plt.plot(range(1, num_epochs + 1), train_losses, label='Train Loss')
+        # Update plot
+        plt.clf()
+        plt.subplot(1, 2, 1)
+        plt.plot(range(1, len(train_losses) + 1), train_losses, label='Train Loss')
+        plt.xlabel('Epochs')
+        plt.ylabel('Loss')
+        plt.title('Training Loss Over Time')
+        plt.legend()
 
-    plt.xlabel('Epochs')
-    plt.ylabel('Loss')
-    plt.title('Training Loss Over Time')
-    plt.legend()
+        plt.subplot(1, 2, 2)
+        plt.plot(range(1, len(train_accuracies) + 1), train_accuracies, label='Train Accuracy')
+        plt.plot(range(1, len(test_accuracies) + 1), test_accuracies, label='Test Accuracy')
+        plt.xlabel('Epochs')
+        plt.ylabel('Accuracy')
+        plt.title('Training and Test Accuracy Over Time')
+        plt.legend()
 
-    plt.subplot(1, 2, 2)
-    plt.plot(range(1, num_epochs + 1), train_accuracies, label='Train Accuracy')
-    plt.plot(range(1, num_epochs + 1), test_accuracies, label='Test Accuracy')
-    plt.xlabel('Epochs')
-    plt.ylabel('Accuracy')
-    plt.title('Training and Test Accuracy Over Time')
-    plt.legend()
+        # Pause the plot for a short time to update the window
+        plt.pause(0.001)
 
-    # 그래프 파일로 저장
-    plt.savefig('training_classification_progress_CNN.png')
-    plt.show()
+        # Save the final plot
+        plt.savefig('training_classification_progress_CNN.png')
+        plt.show()
+
+
+# def train(model, train_loader, test_loader, criterion, optimizer, scheduler, device, num_epochs):
+#     best_accuracy = 0
+#     train_losses, train_accuracies, test_accuracies = [], [], []
+    
+#     for epoch in range(num_epochs):
+#         model.train()
+#         running_loss = 0.0
+#         correct = 0
+#         total = 0
+#         print('## epoch ##', epoch)
+        
+#         for batch in tqdm(train_loader):
+#             inputs, labels = batch['image'], batch['label']
+#             inputs = inputs.to(torch.float32).to(device)
+#             labels = labels.to(torch.float32).to(device)
+
+#             optimizer.zero_grad()
+
+#             outputs = model(inputs)
+#             labels = labels.long()
+#             loss = criterion(outputs, labels)
+#             loss.backward()
+#             optimizer.step()
+
+#             running_loss += loss.item()
+#             _, predicted = torch.max(outputs.data, 1)
+#             total += labels.size(0)
+#             correct += (predicted == labels).sum().item()
+
+#         scheduler.step()  
+#         epoch_loss = running_loss / len(train_loader)
+#         epoch_train_accuracy = 100 * correct / total
+#         epoch_test_accuracy = test_accuracy(model, test_loader, device)
+
+#         train_losses.append(epoch_loss)
+#         train_accuracies.append(epoch_train_accuracy)
+#         test_accuracies.append(epoch_test_accuracy)
+
+#         print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {epoch_loss}, Train Accuracy: {epoch_train_accuracy}%, Test Accuracy: {epoch_test_accuracy}%")
+        
+#         if epoch_test_accuracy > best_accuracy:
+#             best_accuracy = epoch_test_accuracy
+#             torch.save(model.state_dict(), 'weights/vgg_final_pretrained.pth')
+#             print(f"New best model saved with accuracy: {epoch_test_accuracy}%")
+        
+#     plt.figure(figsize=(12, 6))
+#     plt.subplot(1, 2, 1)
+#     plt.plot(range(1, num_epochs + 1), train_losses, label='Train Loss')
+
+#     plt.xlabel('Epochs')
+#     plt.ylabel('Loss')
+#     plt.title('Training Loss Over Time')
+#     plt.legend()
+
+#     plt.subplot(1, 2, 2)
+#     plt.plot(range(1, num_epochs + 1), train_accuracies, label='Train Accuracy')
+#     plt.plot(range(1, num_epochs + 1), test_accuracies, label='Test Accuracy')
+#     plt.xlabel('Epochs')
+#     plt.ylabel('Accuracy')
+#     plt.title('Training and Test Accuracy Over Time')
+#     plt.legend()
+
+#     # 그래프 파일로 저장
+#     plt.savefig('training_classification_progress_CNN.png')
+#     plt.show()
 
 
 if __name__ == "__main__":
@@ -218,9 +290,11 @@ if __name__ == "__main__":
 
     #model = VGG(num_classes=11).to(device)
     model =  VGG16(num_classes=11).to(device)
+    #model = torch.hub.load('pytorch/vision:v0.10.0', 'vgg16', pretrained=True)
     #model = BasicCNN(num_classes=11).to(device)
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+    #optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001, betas=(0.9, 0.999))
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
     model.to(device)
 

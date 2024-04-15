@@ -38,7 +38,7 @@ def parse_args():
     parser.add_argument('--test_path', type=str, default='/data/omscs_datasets/train/', help='Path to the test dataset')
     parser.add_argument('--extra_path', type=str, default='/data/omscs_datasets/extra/', help='Path to the extra dataset')
     parser.add_argument('--device', type=str, default='cuda:0', help='Path to the device')
-    parser.add_argument('--epoch', type=int, default=50, help='Path to the device')
+    parser.add_argument('--epoch', type=int, default=10, help='Path to the device')
     parser.add_argument('--gray', type=bool, default=False, help='Train with Gray')
 
     return parser.parse_args()
@@ -140,7 +140,7 @@ def train(args):
 
         if loss < rec_loss:
             if args.gray: torch.save(vae.state_dict(),'weights/vae_train_outlier_box_gray_weight.pth')
-            else: torch.save(vae.state_dict(),'weights/vae_train_outlier_box_weight.pth')
+            else: torch.save(vae.state_dict(),'weights/vae_final.pth')
         print(f'Epoch:{epoch} Reconstruction Loss:{loss}')
         
 
@@ -182,9 +182,9 @@ def train(args):
         plt.savefig('training_reconstruction_progress.png')
     plt.show()
 
-
+import os
 if __name__ == "__main__":
-
+    os.system('rm -rf reconstructed_images/*.png')
     args = parse_args()
 
     train_path = args.train_path
