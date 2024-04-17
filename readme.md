@@ -24,7 +24,7 @@ python3 run.py --vgg_path {vgg_weight_path} --vae_path {vae_weight_path}
 ```
 
 I included the 
-    vgg weight :https://gatech.box.com/s/oe7kz6rz2flhb7nivscaydp90vtoxupi
-    vae_weight: https://gatech.box.com/s/oe7kz6rz2flhb7nivscaydp90vtoxupi
+    vgg weight :https://gatech.box.com/s/6iddhe8s15j7qrz3mvs25snb62gg9tz7
+    vae_weight: https://gatech.box.com/s/wbjoxh7o0dzyko1vir3wtgi74m55homl
 
 You must download and include in the path above
