@@ -175,7 +175,7 @@ def train(model, train_loader, test_loader, criterion, optimizer, scheduler, dev
         
         if epoch_test_accuracy > best_accuracy:
             best_accuracy = epoch_test_accuracy
-            torch.save(model.state_dict(), 'weights/vgg_final_pretrained.pth')
+            torch.save(model.state_dict(), 'weights/vgg_final.pth')
             print(f"New best model saved with accuracy: {epoch_test_accuracy}%")
         
         # Update plot
