@@ -86,13 +86,14 @@ def create_image_pyramid(image, scale=1.5, min_size=(30, 30)):
         image = cv2.resize(image, (new_width, new_height))
     return pyramid
 
+
 def nms(boxes, scores, iou_threshold):
     if len(boxes) == 0:
         return []
 
-    # Convert to float arrays
-    boxes = np.array(boxes)
-    scores = np.array(scores)
+    # Convert to float arrays if not already
+    boxes = np.array(boxes, dtype=np.float32)
+    scores = np.array(scores, dtype=np.float32)
 
     # Coordinates of bounding boxes
     x1 = boxes[:, 0]
@@ -101,24 +102,39 @@ def nms(boxes, scores, iou_threshold):
     y2 = boxes[:, 3]
 
     # Compute area of each bounding box
-    areas = (x2 - x1 + 1) * (y2 - y1 + 1)
+    areas = (x2 - x1) * (y2 - y1)
     order = scores.argsort()[::-1]  # Sort bounding boxes by descending order of their scores
 
     keep = []
     while order.size > 0:
         i = order[0]
         keep.append(i)
+
+        # Find the intersection
         xx1 = np.maximum(x1[i], x1[order[1:]])
         yy1 = np.maximum(y1[i], y1[order[1:]])
         xx2 = np.minimum(x2[i], x2[order[1:]])
         yy2 = np.minimum(y2[i], y2[order[1:]])
 
-        w = np.maximum(0, xx2 - xx1 + 1)
-        h = np.maximum(0, yy2 - yy1 + 1)
+        w = np.maximum(0, xx2 - xx1)
+        h = np.maximum(0, yy2 - yy1)
         inter = w * h
-        iou = inter / (areas[i] + areas[order[1:]] - inter)
 
+        # Find the union
+        union = areas[i] + areas[order[1:]] - inter
+        iou = inter / union
+
+        # Find indices of boxes that are not significantly overlapping
         inds = np.where(iou <= iou_threshold)[0]
+
+        # Check if the current box is fully encompassing any other box and remove the smaller one
+        encompassed = np.where((x1[i] <= x1[order[1:]]) & (y1[i] <= y1[order[1:]]) &
+                               (x2[i] >= x2[order[1:]]) & (y2[i] >= y2[order[1:]]) & 
+                               (areas[i] >= areas[order[1:]]))[0]
+
+        inds = np.setdiff1d(inds, encompassed)  # Remove the encompassed boxes' indices from inds
+
+        # Update the list of boxes to be processed
         order = order[inds + 1]
 
     return keep
@@ -156,7 +172,7 @@ def detect_digit_from_image_reconstruct(img_path, vae_model, vgg16_model, output
                     probabilities = torch.nn.functional.softmax(vgg16_model(window_tensor), dim=1)
                     predicted_prob, predicted_class = torch.max(probabilities, 1)
                    
-                    if predicted_prob[0] > 0.95:
+                    if predicted_prob[0] > 0.92:
                         scale_factor = original_image.shape[1] / resized.shape[1]
                         x_scaled = int(x * scale_factor)
                         y_scaled = int(y * scale_factor)
@@ -167,13 +183,14 @@ def detect_digit_from_image_reconstruct(img_path, vae_model, vgg16_model, output
                         predicted_classs.append(predicted_class)
 
     # Apply Non-Maximum Suppression
-    keep_indices = nms(boxes, scores, 0.4)
+    keep_indices = nms(boxes, scores, 0.32)
     for i in keep_indices:
         x1, y1, x2, y2 = boxes[i]
         predicted_class = predicted_classs[i]
-        cv2.putText(original_image, str(predicted_class.item()), (x1, y1 + 9), font, 0.5, (255, 0, 0), 2)
-        cv2.rectangle(original_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
-
+        if  (abs(x1-x2) < 100 and  abs(y1-y2)< 100) and  (abs(x1-x2) > 15 and  abs(y1-y2) > 15):
+            cv2.putText(original_image, str(predicted_class.item()), (x1 - 10, y1 + 9), font, 0.5, (255, 0, 0), 2)
+            cv2.rectangle(original_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+    
     cv2.imwrite(output_image_path, original_image)
 
 
